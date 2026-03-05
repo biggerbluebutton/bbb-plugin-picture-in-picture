@@ -35,6 +35,10 @@ function Video({ srcObject }: VideoProps) {
       el.removeEventListener('pause', ensurePlaying);
       el.removeEventListener('stalled', ensurePlaying);
       clearInterval(interval);
+      // Stop cloned tracks to prevent resource leaks
+      if (el.srcObject instanceof MediaStream) {
+        el.srcObject.getTracks().forEach((track) => track.stop());
+      }
     };
   }, [srcObject]);
 
