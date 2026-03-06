@@ -5,6 +5,8 @@ interface VideoProps {
   srcObject: MediaProvider;
 }
 
+const TAG = '[PiP:screen]';
+
 function Video({ srcObject }: VideoProps) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cloneRef = React.useRef<MediaStream | null>(null);
@@ -23,6 +25,11 @@ function Video({ srcObject }: VideoProps) {
     const el = videoRef.current;
     if (!el) return undefined;
 
+    const getTrackInfo = (stream: MediaStream) => {
+      const tracks = stream.getTracks();
+      return tracks.map((t) => `${t.kind}:${t.readyState}:enabled=${t.enabled}:muted=${t.muted}`).join(', ');
+    };
+
     const assignClone = () => {
       if (cloneRef.current) {
         cloneRef.current.getTracks().forEach((t) => t.stop());
@@ -31,6 +38,11 @@ function Video({ srcObject }: VideoProps) {
         cloneRef.current = srcObject.clone();
         // eslint-disable-next-line no-param-reassign
         el.srcObject = cloneRef.current;
+        // eslint-disable-next-line no-console
+        console.info(TAG, 'clone assigned', {
+          originalTracks: getTrackInfo(srcObject),
+          cloneTracks: getTrackInfo(cloneRef.current),
+        });
       } else {
         // eslint-disable-next-line no-param-reassign
         el.srcObject = srcObject;
@@ -42,18 +54,43 @@ function Video({ srcObject }: VideoProps) {
     frozenCountRef.current = 0;
 
     const ensurePlaying = () => {
-      if (el.paused && el.srcObject) {
+      const paused = el.paused;
+      const ct = el.currentTime;
+      const trackState = cloneRef.current ? getTrackInfo(cloneRef.current) : 'no-clone';
+      const origState = originalRef.current instanceof MediaStream
+        ? getTrackInfo(originalRef.current) : 'not-mediastream';
+
+      // eslint-disable-next-line no-console
+      console.debug(TAG, 'tick', {
+        paused,
+        currentTime: ct,
+        lastTime: lastTimeRef.current,
+        frozenCount: frozenCountRef.current,
+        cloneTracks: trackState,
+        originalTracks: origState,
+        docHidden: document.hidden,
+      });
+
+      if (paused && el.srcObject) {
+        // eslint-disable-next-line no-console
+        console.info(TAG, 'video paused, calling play()');
         el.play().catch(() => {});
       }
 
-      if (!el.paused && el.srcObject) {
-        const ct = el.currentTime;
+      if (!paused && el.srcObject) {
         if (ct > 0 && ct === lastTimeRef.current) {
           frozenCountRef.current += 1;
+          // eslint-disable-next-line no-console
+          console.warn(TAG, 'frozen detected', { ct, frozenCount: frozenCountRef.current });
           if (frozenCountRef.current >= 2) {
             frozenCountRef.current = 0;
             const orig = originalRef.current;
             if (orig instanceof MediaStream) {
+              // eslint-disable-next-line no-console
+              console.warn(TAG, 're-cloning to recover', {
+                origTracks: getTrackInfo(orig),
+                oldCloneTracks: cloneRef.current ? getTrackInfo(cloneRef.current) : 'none',
+              });
               if (cloneRef.current) {
                 cloneRef.current.getTracks().forEach((t) => t.stop());
               }
@@ -61,6 +98,8 @@ function Video({ srcObject }: VideoProps) {
               // eslint-disable-next-line no-param-reassign
               el.srcObject = cloneRef.current;
               el.play().catch(() => {});
+              // eslint-disable-next-line no-console
+              console.info(TAG, 're-clone done', { newTracks: getTrackInfo(cloneRef.current) });
             }
           }
         } else {
@@ -70,14 +109,24 @@ function Video({ srcObject }: VideoProps) {
       }
     };
 
-    el.addEventListener('pause', ensurePlaying);
-    el.addEventListener('stalled', ensurePlaying);
+    el.addEventListener('pause', () => {
+      // eslint-disable-next-line no-console
+      console.info(TAG, 'pause event fired');
+      ensurePlaying();
+    });
+    el.addEventListener('stalled', () => {
+      // eslint-disable-next-line no-console
+      console.info(TAG, 'stalled event fired');
+      ensurePlaying();
+    });
 
+    // eslint-disable-next-line no-console
+    console.info(TAG, 'starting interval on pipWindow', { pipWindowExists: !!pipWindow });
     const interval = pipWindow.setInterval(ensurePlaying, 2000);
 
     return () => {
-      el.removeEventListener('pause', ensurePlaying);
-      el.removeEventListener('stalled', ensurePlaying);
+      // eslint-disable-next-line no-console
+      console.info(TAG, 'cleanup: stopping clone and clearing interval');
       pipWindow.clearInterval(interval);
       if (cloneRef.current) {
         cloneRef.current.getTracks().forEach((t) => t.stop());
