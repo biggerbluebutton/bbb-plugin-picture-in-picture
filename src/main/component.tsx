@@ -3,7 +3,10 @@ import * as ReactDOM from 'react-dom/client';
 import { ActionButtonDropdownOption, BbbPluginSdk, FloatingWindow } from 'bigbluebutton-html-plugin-sdk';
 import { defineMessages } from 'react-intl';
 import { useI18n } from '../common/hooks';
-import { acquireKeepAlive, releaseKeepAlive, resumeMainTabVideos } from '../common/keep-alive';
+import {
+  acquireKeepAlive, releaseKeepAlive, resumeMainTabVideos,
+  startVideoKeepAlive, stopVideoKeepAlive,
+} from '../common/keep-alive';
 import Pip from '../plugin-pip/component';
 import { useVideoStreams } from '../plugin-pip/components/cameras/hooks';
 import { useScreenshare } from '../plugin-pip/components/screenshare/hooks';
@@ -133,8 +136,18 @@ function MainComponent({ pluginUuid }: MainComponentProps): React.ReactNode {
       if (document.hidden) {
         acquireKeepAlive();
         // eslint-disable-next-line no-console
-        startPipWindow().then((started) => { if (started) console.info('PiP window started by visibility change'); }).catch(console.warn);
+        startPipWindow().then((started) => {
+          if (started) {
+            // eslint-disable-next-line no-console
+            console.info('PiP window started by visibility change');
+            // Keep main tab videos decoding while hidden — uses the PiP
+            // window's timer so it fires even when the opener is throttled.
+            if (pipWindowRef.current) startVideoKeepAlive(pipWindowRef.current);
+          }
+          // eslint-disable-next-line no-console
+        }).catch(console.warn);
       } else {
+        stopVideoKeepAlive(pipWindowRef.current || undefined);
         releaseKeepAlive();
         pipWindowRef.current?.close();
         // Force-resume videos in the main tab that may have been paused

@@ -11,6 +11,7 @@
 let lockResolver: (() => void) | null = null;
 let oscillator: OscillatorNode | null = null;
 let audioCtx: AudioContext | null = null;
+let videoKeepAliveInterval: number | null = null;
 
 export function acquireKeepAlive(): void {
   // Web Lock — prevents tab freezing
@@ -36,6 +37,49 @@ export function acquireKeepAlive(): void {
   }
 }
 
+export function stopVideoKeepAlive(pipWindow?: Window): void {
+  if (videoKeepAliveInterval !== null) {
+    if (pipWindow) {
+      pipWindow.clearInterval(videoKeepAliveInterval);
+    } else {
+      clearInterval(videoKeepAliveInterval);
+    }
+    videoKeepAliveInterval = null;
+    // eslint-disable-next-line no-console
+    console.info('[PiP:keep-alive] stopped video keep-alive');
+  }
+}
+
+/**
+ * Continuously force-plays all main tab video elements while the PiP window
+ * is active. Uses the PiP window's setInterval so the timer fires at full
+ * speed even when the opener tab is minimized on Windows.
+ *
+ * This keeps Chrome's video decode pipeline alive for local camera streams
+ * (getUserMedia) that would otherwise freeze when the tab is hidden.
+ */
+export function startVideoKeepAlive(pipWindow: Window): void {
+  stopVideoKeepAlive(pipWindow);
+
+  const keepAlive = () => {
+    document.querySelectorAll('video').forEach((video) => {
+      if (video.srcObject) {
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+        // Force Chrome to keep the decode pipeline active by
+        // reading a property that requires a decoded frame.
+        // eslint-disable-next-line no-unused-expressions
+        video.videoWidth;
+      }
+    });
+  };
+
+  videoKeepAliveInterval = pipWindow.setInterval(keepAlive, 1000);
+  // eslint-disable-next-line no-console
+  console.info('[PiP:keep-alive] started video keep-alive on pipWindow');
+}
+
 export function releaseKeepAlive(): void {
   if (lockResolver) {
     lockResolver();
@@ -53,6 +97,8 @@ export function releaseKeepAlive(): void {
   if (audioCtx) {
     audioCtx.suspend().catch(() => {});
   }
+
+  stopVideoKeepAlive();
 }
 
 /**

@@ -12,6 +12,7 @@ function Video({ srcObject }: VideoProps) {
   const cloneRef = React.useRef<MediaStream | null>(null);
   const lastTimeRef = React.useRef<number>(-1);
   const frozenCountRef = React.useRef<number>(0);
+  const recoveryAttemptRef = React.useRef<number>(0);
   const originalRef = React.useRef<MediaProvider>(srcObject);
   originalRef.current = srcObject;
 
@@ -49,12 +50,35 @@ function Video({ srcObject }: VideoProps) {
       }
     };
 
+    const assignOriginalDirect = () => {
+      if (cloneRef.current) {
+        cloneRef.current.getTracks().forEach((t) => t.stop());
+        cloneRef.current = null;
+      }
+      // eslint-disable-next-line no-param-reassign
+      el.srcObject = srcObject;
+      // eslint-disable-next-line no-console
+      console.info(TAG, 'assigned original directly (no clone)');
+    };
+
+    const forceReinit = () => {
+      const src = cloneRef.current || srcObject;
+      // eslint-disable-next-line no-param-reassign
+      el.srcObject = null;
+      // eslint-disable-next-line no-param-reassign
+      el.srcObject = src;
+      el.play().catch(() => {});
+      // eslint-disable-next-line no-console
+      console.info(TAG, 'force reinit (detach+reattach)');
+    };
+
     assignClone();
     lastTimeRef.current = -1;
     frozenCountRef.current = 0;
+    recoveryAttemptRef.current = 0;
 
     const ensurePlaying = () => {
-      const paused = el.paused;
+      const { paused } = el;
       const ct = el.currentTime;
       const trackState = cloneRef.current ? getTrackInfo(cloneRef.current) : 'no-clone';
       const origState = originalRef.current instanceof MediaStream
@@ -66,6 +90,7 @@ function Video({ srcObject }: VideoProps) {
         currentTime: ct,
         lastTime: lastTimeRef.current,
         frozenCount: frozenCountRef.current,
+        recoveryAttempt: recoveryAttemptRef.current,
         cloneTracks: trackState,
         originalTracks: origState,
         docHidden: document.hidden,
@@ -78,32 +103,51 @@ function Video({ srcObject }: VideoProps) {
       }
 
       if (!paused && el.srcObject) {
-        if (ct > 0 && ct === lastTimeRef.current) {
+        const isFrozen = ct === lastTimeRef.current;
+        if (isFrozen && lastTimeRef.current !== -1) {
           frozenCountRef.current += 1;
           // eslint-disable-next-line no-console
-          console.warn(TAG, 'frozen detected', { ct, frozenCount: frozenCountRef.current });
+          console.warn(TAG, 'frozen detected', {
+            ct, frozenCount: frozenCountRef.current, recoveryAttempt: recoveryAttemptRef.current,
+          });
+
           if (frozenCountRef.current >= 2) {
             frozenCountRef.current = 0;
-            const orig = originalRef.current;
-            if (orig instanceof MediaStream) {
-              // eslint-disable-next-line no-console
-              console.warn(TAG, 're-cloning to recover', {
-                origTracks: getTrackInfo(orig),
-                oldCloneTracks: cloneRef.current ? getTrackInfo(cloneRef.current) : 'none',
-              });
-              if (cloneRef.current) {
-                cloneRef.current.getTracks().forEach((t) => t.stop());
+            recoveryAttemptRef.current += 1;
+            const attempt = recoveryAttemptRef.current;
+
+            if (attempt <= 2) {
+              const orig = originalRef.current;
+              if (orig instanceof MediaStream) {
+                // eslint-disable-next-line no-console
+                console.warn(TAG, `recovery #${attempt}: re-cloning`);
+                if (cloneRef.current) {
+                  cloneRef.current.getTracks().forEach((t) => t.stop());
+                }
+                cloneRef.current = orig.clone();
+                // eslint-disable-next-line no-param-reassign
+                el.srcObject = cloneRef.current;
+                el.play().catch(() => {});
               }
-              cloneRef.current = orig.clone();
-              // eslint-disable-next-line no-param-reassign
-              el.srcObject = cloneRef.current;
-              el.play().catch(() => {});
+            } else if (attempt <= 4) {
               // eslint-disable-next-line no-console
-              console.info(TAG, 're-clone done', { newTracks: getTrackInfo(cloneRef.current) });
+              console.warn(TAG, `recovery #${attempt}: assigning original directly`);
+              assignOriginalDirect();
+              el.play().catch(() => {});
+            } else {
+              // eslint-disable-next-line no-console
+              console.warn(TAG, `recovery #${attempt}: force reinit`);
+              forceReinit();
+              if (attempt >= 8) recoveryAttemptRef.current = 0;
             }
           }
         } else {
+          if (frozenCountRef.current > 0 || recoveryAttemptRef.current > 0) {
+            // eslint-disable-next-line no-console
+            console.info(TAG, 'video recovered', { ct, recoveryAttempt: recoveryAttemptRef.current });
+          }
           frozenCountRef.current = 0;
+          recoveryAttemptRef.current = 0;
         }
         lastTimeRef.current = ct;
       }
