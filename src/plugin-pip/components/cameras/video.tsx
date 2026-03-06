@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { usePipWindow } from '../contexts/pip-window';
 
 interface VideoProps {
   srcObject: MediaProvider;
@@ -10,18 +11,17 @@ function Video({ srcObject, talking }: VideoProps) {
   const cloneRef = React.useRef<MediaStream | null>(null);
   const lastTimeRef = React.useRef<number>(-1);
   const frozenCountRef = React.useRef<number>(0);
-  // Keep a live reference to the original stream so the frozen-video
-  // recovery path can re-clone from it at any time.
   const originalRef = React.useRef<MediaProvider>(srcObject);
   originalRef.current = srcObject;
+
+  // Use the PiP window's timers so they keep firing at full speed
+  // even when the opener tab is throttled (e.g. minimized on Windows).
+  const pipWindow = usePipWindow();
 
   const attachVideo = React.useCallback((ref: HTMLVideoElement | null) => {
     videoRef.current = ref;
   }, []);
 
-  // Clone the original stream and assign it to the video element.
-  // Cloned tracks have independent lifecycles, so background-tab
-  // throttling of the source video element won't freeze the PiP copy.
   React.useEffect(() => {
     const el = videoRef.current;
     if (!el) return undefined;
@@ -79,18 +79,20 @@ function Video({ srcObject, talking }: VideoProps) {
     el.addEventListener('pause', ensurePlaying);
     el.addEventListener('stalled', ensurePlaying);
 
-    const interval = setInterval(ensurePlaying, 2000);
+    // Use pipWindow.setInterval — the PiP window is a visible OS window,
+    // so its timers run at full speed even when the opener tab is minimized.
+    const interval = pipWindow.setInterval(ensurePlaying, 2000);
 
     return () => {
       el.removeEventListener('pause', ensurePlaying);
       el.removeEventListener('stalled', ensurePlaying);
-      clearInterval(interval);
+      pipWindow.clearInterval(interval);
       if (cloneRef.current) {
         cloneRef.current.getTracks().forEach((t) => t.stop());
         cloneRef.current = null;
       }
     };
-  }, [srcObject]);
+  }, [srcObject, pipWindow]);
 
   const className = [];
 

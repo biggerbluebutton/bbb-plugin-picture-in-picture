@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { usePipWindow } from '../contexts/pip-window';
 
 interface VideoProps {
   srcObject: MediaProvider;
@@ -11,6 +12,8 @@ function Video({ srcObject }: VideoProps) {
   const frozenCountRef = React.useRef<number>(0);
   const originalRef = React.useRef<MediaProvider>(srcObject);
   originalRef.current = srcObject;
+
+  const pipWindow = usePipWindow();
 
   const attachVideo = React.useCallback((ref: HTMLVideoElement | null) => {
     videoRef.current = ref;
@@ -70,18 +73,18 @@ function Video({ srcObject }: VideoProps) {
     el.addEventListener('pause', ensurePlaying);
     el.addEventListener('stalled', ensurePlaying);
 
-    const interval = setInterval(ensurePlaying, 2000);
+    const interval = pipWindow.setInterval(ensurePlaying, 2000);
 
     return () => {
       el.removeEventListener('pause', ensurePlaying);
       el.removeEventListener('stalled', ensurePlaying);
-      clearInterval(interval);
+      pipWindow.clearInterval(interval);
       if (cloneRef.current) {
         cloneRef.current.getTracks().forEach((t) => t.stop());
         cloneRef.current = null;
       }
     };
-  }, [srcObject]);
+  }, [srcObject, pipWindow]);
 
   return (
     <video
