@@ -154,7 +154,7 @@ function CamerasComponent({ pluginApi }: CamerasComponentProps): React.ReactNode
               userName: stream.user?.name,
               userId: stream.user?.userId,
               userTalking: stream.voice?.talking,
-              srcObject: srcObject.clone(),
+              srcObject,
             };
           }
 
@@ -177,13 +177,6 @@ function CamerasComponent({ pluginApi }: CamerasComponentProps): React.ReactNode
       .finally(() => {
         setLoading(false);
       });
-
-    return () => {
-      // Stop cloned tracks to prevent resource leaks
-      videos.forEach((v) => {
-        if (v.srcObject) v.srcObject.getTracks().forEach((t) => t.stop());
-      });
-    };
   }, [videoStreamsData, lastUpdate]);
 
   useEffect(() => {

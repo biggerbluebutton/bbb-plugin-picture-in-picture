@@ -19,7 +19,7 @@ const pollForScreenshareSrc = (
     const timestamp: number = performance.now();
     const element = container.querySelector('#screenshareContainer video');
     if (element && element instanceof HTMLVideoElement && element.srcObject) {
-      return resolve({ srcObject: (element.srcObject as MediaStream).clone() });
+      return resolve({ srcObject: element.srcObject });
     }
     if (timestamp - start > TIMEOUT) {
       return reject();
@@ -59,13 +59,6 @@ function ScreenshareComponent(
 
     setLoading(true);
     update().finally(() => setLoading(false));
-
-    return () => {
-      // Stop cloned tracks to prevent resource leaks
-      if (screenshare?.srcObject instanceof MediaStream) {
-        screenshare.srcObject.getTracks().forEach((t) => t.stop());
-      }
-    };
   }, [screenshareData]);
 
   if (!screenshare && !loading) {
