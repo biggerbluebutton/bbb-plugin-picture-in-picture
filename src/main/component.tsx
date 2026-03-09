@@ -175,6 +175,14 @@ function MainComponent({ pluginUuid }: MainComponentProps): React.ReactNode {
     // @ts-expect-error This media action may not be supported by all major browsers.
     navigator.mediaSession.setActionHandler('enterpictureinpicture', handleEnterPip);
 
+    // Restore keep-alive if PiP is already active and tab is hidden.
+    // Effect re-runs (e.g. when intl loads) trigger cleanup which calls
+    // releaseKeepAlive(), killing an active keep-alive. Restart it here.
+    if (document.hidden && pipWindowRef.current) {
+      acquireKeepAlive();
+      startVideoKeepAlive(pipWindowRef.current);
+    }
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       releaseKeepAlive();
