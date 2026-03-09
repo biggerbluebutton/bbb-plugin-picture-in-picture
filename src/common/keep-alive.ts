@@ -64,16 +64,27 @@ export function stopVideoKeepAlive(pipWindow?: Window): void {
 export function startVideoKeepAlive(pipWindow: Window): void {
   stopVideoKeepAlive(pipWindow);
 
+  // Offscreen 1x1 canvas to force Chrome's video decoder to produce frames.
+  // Drawing a video to a canvas requires an actual decoded frame, unlike
+  // videoWidth which can be satisfied from cached metadata.
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+
   const keepAlive = () => {
     document.querySelectorAll('video').forEach((video) => {
       if (video.srcObject) {
         if (video.paused) {
           video.play().catch(() => {});
         }
-        // Force Chrome to keep the decode pipeline active by
-        // reading a property that requires a decoded frame.
-        // eslint-disable-next-line no-unused-expressions
-        video.videoWidth;
+        // Force actual frame decode by drawing to canvas.
+        // readyState >= 2 (HAVE_CURRENT_DATA) ensures there's data to draw.
+        if (ctx && video.readyState >= 2) {
+          try {
+            ctx.drawImage(video, 0, 0, 1, 1);
+          } catch { /* security error if cross-origin, ignore */ }
+        }
       }
     });
   };
