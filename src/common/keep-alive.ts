@@ -14,6 +14,9 @@ let audioCtx: AudioContext | null = null;
 let videoKeepAliveInterval: number | null = null;
 
 export function acquireKeepAlive(): void {
+  // Already holding a keep-alive — skip to avoid duplicate resources
+  if (lockResolver || oscillator) return;
+
   // Web Lock — prevents tab freezing
   if (navigator.locks) {
     const lockPromise = new Promise<void>((resolve) => {

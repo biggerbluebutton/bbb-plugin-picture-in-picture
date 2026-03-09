@@ -148,6 +148,9 @@ function Video({ srcObject, talking }: VideoProps) {
               // Reset counter to cycle through strategies again
               if (attempt >= 8) recoveryAttemptRef.current = 0;
             }
+            // Give the new stream one tick to produce a frame
+            // before the frozen detector re-triggers.
+            lastTimeRef.current = -1;
           }
         } else {
           if (frozenCountRef.current > 0 || recoveryAttemptRef.current > 0) {

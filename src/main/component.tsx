@@ -37,6 +37,7 @@ function MainComponent({ pluginUuid }: MainComponentProps): React.ReactNode {
   const { intl } = useI18n(pluginApi);
   const pipActiveRef = React.useRef(JSON.parse(localStorage.getItem('pip-plugin-active')));
   const pipWindowRef = React.useRef<Window | null>(null);
+  const pipPendingRef = React.useRef(false);
   const hasMediaRef = React.useRef(false);
   const [pipActive, setPipActive] = React.useState<boolean>(JSON.parse(localStorage.getItem('pip-plugin-active')));
   const [showFocusWarning, setShowFocusWarning] = React.useState(false);
@@ -70,10 +71,13 @@ function MainComponent({ pluginUuid }: MainComponentProps): React.ReactNode {
 
   React.useEffect(() => {
     const startPipWindow = async () => {
-      if (isPipSupported && pipActiveRef.current && hasMediaRef.current) {
-        // @ts-expect-error This web API may not be supported by all major browsers.
-        if (documentPictureInPicture.window) return false;
+      if (!isPipSupported || !pipActiveRef.current || !hasMediaRef.current) return false;
+      // @ts-expect-error This web API may not be supported by all major browsers.
+      if (documentPictureInPicture.window) return false;
+      if (pipPendingRef.current) return false;
 
+      pipPendingRef.current = true;
+      try {
         // @ts-expect-error This web API may not be supported by all major browsers.
         const pipWindow = await documentPictureInPicture.requestWindow({
           height: 270,
@@ -89,6 +93,7 @@ function MainComponent({ pluginUuid }: MainComponentProps): React.ReactNode {
         const pipRoot = ReactDOM.createRoot(pipWindow.document.getElementById('pip-root'));
 
         const handlePageHide = () => {
+          stopVideoKeepAlive(pipWindow);
           pipWindowRef.current = null;
           releaseKeepAlive();
           pipRoot.unmount();
@@ -127,25 +132,22 @@ function MainComponent({ pluginUuid }: MainComponentProps): React.ReactNode {
         );
 
         return true;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to open PiP window:', err);
+        return false;
+      } finally {
+        pipPendingRef.current = false;
       }
-
-      return false;
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
         acquireKeepAlive();
-        // eslint-disable-next-line no-console
-        startPipWindow().then((started) => {
-          if (started) {
-            // eslint-disable-next-line no-console
-            console.info('PiP window started by visibility change');
-            // Keep main tab videos decoding while hidden — uses the PiP
-            // window's timer so it fires even when the opener is throttled.
-            if (pipWindowRef.current) startVideoKeepAlive(pipWindowRef.current);
-          }
-          // eslint-disable-next-line no-console
-        }).catch(console.warn);
+        // Start video keep-alive if PiP window already exists.
+        // The PiP window itself is opened by the enterpictureinpicture
+        // media session action, which has proper user activation.
+        if (pipWindowRef.current) startVideoKeepAlive(pipWindowRef.current);
       } else {
         stopVideoKeepAlive(pipWindowRef.current || undefined);
         releaseKeepAlive();
@@ -157,8 +159,15 @@ function MainComponent({ pluginUuid }: MainComponentProps): React.ReactNode {
     };
 
     const handleEnterPip = () => {
-      // eslint-disable-next-line no-console
-      startPipWindow().then((started) => { if (started) console.info('PiP window started by PiP action'); }).catch(console.warn);
+      acquireKeepAlive();
+      startPipWindow().then((started) => {
+        if (started) {
+          // eslint-disable-next-line no-console
+          console.info('PiP window started by PiP action');
+          if (pipWindowRef.current) startVideoKeepAlive(pipWindowRef.current);
+        }
+        // eslint-disable-next-line no-console
+      }).catch(console.warn);
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
